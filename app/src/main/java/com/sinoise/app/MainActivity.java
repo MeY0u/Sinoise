@@ -8,6 +8,8 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -27,15 +29,22 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 public class MainActivity extends Activity {
+    private static final int RINGTONE_PICKER_REQUEST = 88;
+
     private SharedPreferences prefs;
     private final EditText[] goals = new EditText[3];
     private final CheckBox[] done = new CheckBox[3];
     private EditText notToDo;
-    private RadioGroup modeGroup;
     private RadioButton intervalRadio;
     private RadioButton timesRadio;
     private EditText intervalMinutes;
     private EditText times;
+    private CheckBox quietEnabled;
+    private EditText quietStart;
+    private EditText quietEnd;
+    private CheckBox soundEnabled;
+    private TextView soundLabel;
+    private String selectedSoundUri = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,6 +70,18 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        save(false);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != RINGTONE_PICKER_REQUEST || resultCode != RESULT_OK || data == null) return;
+
+        Uri uri = data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
+        selectedSoundUri = uri == null ? "" : uri.toString();
+        soundEnabled.setChecked(uri != null);
+        updateSoundLabel();
         save(false);
     }
 
@@ -116,9 +137,9 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(150)));
 
         root.addView(spacer(28));
-        root.addView(sectionTitle("SILENT REMINDERS"));
+        root.addView(sectionTitle("REMINDERS"));
 
-        modeGroup = new RadioGroup(this);
+        RadioGroup modeGroup = new RadioGroup(this);
         modeGroup.setOrientation(RadioGroup.VERTICAL);
         intervalRadio = radio("Every interval");
         timesRadio = radio("At chosen times");
@@ -126,41 +147,72 @@ public class MainActivity extends Activity {
         modeGroup.addView(timesRadio);
         root.addView(modeGroup);
 
-        TextView intervalLabel = smallLabel("INTERVAL · MINUTES (1+) ");
-        root.addView(intervalLabel, marginTop(dp(10)));
+        root.addView(smallLabel("INTERVAL · MINUTES (1+)"), marginTop(dp(10)));
         intervalMinutes = field("60", false);
         intervalMinutes.setInputType(InputType.TYPE_CLASS_NUMBER);
         root.addView(intervalMinutes, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
 
-        TextView timesLabel = smallLabel("TIMES · 24H, COMMA-SEPARATED");
-        root.addView(timesLabel, marginTop(dp(14)));
+        root.addView(smallLabel("TIMES · 24H, COMMA-SEPARATED"), marginTop(dp(14)));
         times = field("09:00, 13:00, 17:00", false);
         root.addView(times, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
 
-        TextView note = text("Chosen times use exact alarms when Android allows it. Notifications stay silent: no sound or vibration.", 13, Typeface.NORMAL);
-        note.setTextColor(Color.DKGRAY);
-        note.setPadding(0, dp(12), 0, dp(8));
-        root.addView(note);
+        root.addView(spacer(26));
+        root.addView(sectionTitle("SLEEP / QUIET HOURS"));
+        quietEnabled = new CheckBox(this);
+        quietEnabled.setText("Do not notify during sleep time");
+        quietEnabled.setTextSize(15);
+        quietEnabled.setTextColor(Color.rgb(20, 20, 20));
+        quietEnabled.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(20, 20, 20)));
+        root.addView(quietEnabled);
 
-        Button test = button("TEST NOTIFICATION NOW");
-        test.setOnClickListener(v -> {
-            save(false);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                    && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestNotificationsIfNeeded();
-                Toast.makeText(this, "Allow notifications, then tap TEST again", Toast.LENGTH_LONG).show();
-                return;
-            }
-            boolean shown = ReminderReceiver.showNow(this);
-            Toast.makeText(this, shown ? "Test notification sent" : "Notification permission is blocked", Toast.LENGTH_SHORT).show();
+        LinearLayout sleepRow = new LinearLayout(this);
+        sleepRow.setOrientation(LinearLayout.HORIZONTAL);
+        sleepRow.setGravity(Gravity.CENTER_VERTICAL);
+        quietStart = field("23:00", false);
+        quietEnd = field("07:00", false);
+        sleepRow.addView(quietStart, new LinearLayout.LayoutParams(0, dp(52), 1f));
+        TextView to = text("  to  ", 14, Typeface.NORMAL);
+        sleepRow.addView(to);
+        sleepRow.addView(quietEnd, new LinearLayout.LayoutParams(0, dp(52), 1f));
+        root.addView(sleepRow, marginTopWrap(dp(6)));
+
+        TextView quietNote = text("Example: 23:00 to 07:00. Reminders inside this window are skipped.", 13, Typeface.NORMAL);
+        quietNote.setTextColor(Color.DKGRAY);
+        quietNote.setPadding(0, dp(8), 0, 0);
+        root.addView(quietNote);
+
+        root.addView(spacer(26));
+        root.addView(sectionTitle("NOTIFICATION SOUND"));
+        soundEnabled = new CheckBox(this);
+        soundEnabled.setText("Use a sound");
+        soundEnabled.setTextSize(15);
+        soundEnabled.setTextColor(Color.rgb(20, 20, 20));
+        soundEnabled.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(20, 20, 20)));
+        soundEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked && selectedSoundUri.isEmpty()) openSoundPicker();
+            updateSoundLabel();
         });
-        root.addView(test, marginTop(dp(8)));
+        root.addView(soundEnabled);
+
+        Button chooseSound = button("CHOOSE SOUND");
+        chooseSound.setOnClickListener(v -> openSoundPicker());
+        root.addView(chooseSound, marginTop(dp(6)));
+
+        soundLabel = text("Silent", 13, Typeface.NORMAL);
+        soundLabel.setTextColor(Color.DKGRAY);
+        soundLabel.setPadding(0, dp(8), 0, 0);
+        root.addView(soundLabel);
+
+        TextView note = text("Chosen times use exact alarms when Android allows it. Interval timing starts when you tap Save & Schedule.", 13, Typeface.NORMAL);
+        note.setTextColor(Color.DKGRAY);
+        note.setPadding(0, dp(18), 0, dp(8));
+        root.addView(note);
 
         Button save = button("SAVE & SCHEDULE");
         save.setOnClickListener(v -> save(true));
-        root.addView(save, marginTop(dp(10)));
+        root.addView(save, marginTop(dp(8)));
 
         Button stop = button("STOP REMINDERS");
         stop.setOnClickListener(v -> {
@@ -184,6 +236,14 @@ public class MainActivity extends Activity {
         String mode = prefs.getString("reminder_mode", ReminderScheduler.MODE_INTERVAL);
         if (ReminderScheduler.MODE_TIMES.equals(mode)) timesRadio.setChecked(true);
         else intervalRadio.setChecked(true);
+
+        quietEnabled.setChecked(prefs.getBoolean("quiet_enabled", false));
+        quietStart.setText(prefs.getString("quiet_start", "23:00"));
+        quietEnd.setText(prefs.getString("quiet_end", "07:00"));
+
+        selectedSoundUri = prefs.getString("sound_uri", "");
+        soundEnabled.setChecked(prefs.getBoolean("sound_enabled", false));
+        updateSoundLabel();
     }
 
     private void save(boolean schedule) {
@@ -201,6 +261,13 @@ public class MainActivity extends Activity {
             return;
         }
 
+        if (quietEnabled.isChecked()
+                && (ReminderScheduler.parseTimeToMinutes(quietStart.getText().toString()) < 0
+                || ReminderScheduler.parseTimeToMinutes(quietEnd.getText().toString()) < 0)) {
+            if (schedule) Toast.makeText(this, "Sleep times must use 24-hour HH:MM, e.g. 23:00", Toast.LENGTH_LONG).show();
+            return;
+        }
+
         SharedPreferences.Editor editor = prefs.edit();
         for (int i = 0; i < 3; i++) {
             editor.putString("goal_" + (i + 1), goals[i].getText().toString().trim());
@@ -210,8 +277,15 @@ public class MainActivity extends Activity {
         editor.putString("reminder_mode", mode);
         editor.putInt("interval_minutes", minutes);
         editor.putString("times", times.getText().toString().trim());
+        editor.putBoolean("quiet_enabled", quietEnabled.isChecked());
+        editor.putString("quiet_start", quietStart.getText().toString().trim());
+        editor.putString("quiet_end", quietEnd.getText().toString().trim());
+        editor.putBoolean("sound_enabled", soundEnabled.isChecked() && !selectedSoundUri.isEmpty());
+        editor.putString("sound_uri", selectedSoundUri);
         if (schedule) editor.putBoolean("reminders_enabled", true);
         editor.apply();
+
+        ReminderReceiver.createChannel(this);
 
         if (schedule) {
             ReminderScheduler.scheduleFromPrefs(this);
@@ -219,8 +293,36 @@ public class MainActivity extends Activity {
                 requestExactAlarmAccess();
                 Toast.makeText(this, "Allow Alarms & reminders for exact chosen times", Toast.LENGTH_LONG).show();
             } else {
-                Toast.makeText(this, "Silent reminders scheduled", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Reminders scheduled", Toast.LENGTH_SHORT).show();
             }
+        }
+    }
+
+    private void openSoundPicker() {
+        Intent intent = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
+        intent.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION);
+        intent.putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Choose Sinoise sound");
+        intent.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true);
+        intent.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true);
+        if (!selectedSoundUri.isEmpty()) {
+            intent.putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(selectedSoundUri));
+        }
+        startActivityForResult(intent, RINGTONE_PICKER_REQUEST);
+    }
+
+    private void updateSoundLabel() {
+        if (soundLabel == null) return;
+        if (!soundEnabled.isChecked() || selectedSoundUri.isEmpty()) {
+            soundLabel.setText("Silent");
+            return;
+        }
+        try {
+            Uri uri = Uri.parse(selectedSoundUri);
+            Ringtone ringtone = RingtoneManager.getRingtone(this, uri);
+            String title = ringtone == null ? "Selected sound" : ringtone.getTitle(this);
+            soundLabel.setText(title);
+        } catch (Exception e) {
+            soundLabel.setText("Selected sound");
         }
     }
 
@@ -240,14 +342,7 @@ public class MainActivity extends Activity {
     private boolean containsValidTime(String csv) {
         String[] parts = csv.split(",");
         for (String part : parts) {
-            String[] hm = part.trim().split(":");
-            if (hm.length != 2) continue;
-            try {
-                int h = Integer.parseInt(hm[0].trim());
-                int m = Integer.parseInt(hm[1].trim());
-                if (h >= 0 && h <= 23 && m >= 0 && m <= 59) return true;
-            } catch (NumberFormatException ignored) {
-            }
+            if (ReminderScheduler.parseTimeToMinutes(part.trim()) >= 0) return true;
         }
         return false;
     }
@@ -343,6 +438,13 @@ public class MainActivity extends Activity {
     private LinearLayout.LayoutParams marginTop(int px) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
+        params.topMargin = px;
+        return params;
+    }
+
+    private LinearLayout.LayoutParams marginTopWrap(int px) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.topMargin = px;
         return params;
     }
