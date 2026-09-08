@@ -85,13 +85,7 @@ public class SinoiseApplication extends Application implements Application.Activ
     private void showAbout(Activity activity) {
         String message =
                 "Signal > noise\n\n" +
-                "Current version: 0.5.0 (v5)\n\n" +
-                "Version history\n" +
-                "v5 · About menu and version history\n" +
-                "v4 · Reliable interval reminders\n" +
-                "v3 · Sleep hours and optional notification sound\n" +
-                "v2 · Exact chosen-time reminders\n" +
-                "v1 · Initial Sinoise MVP\n\n" +
+                "Version 0.5.0\n\n" +
                 "Made by Gennady109";
 
         new AlertDialog.Builder(activity)
