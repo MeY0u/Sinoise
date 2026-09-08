@@ -19,6 +19,7 @@ public final class ReminderScheduler {
     private static final int INTERVAL_REQUEST = 500;
     private static final int TIMES_REQUEST_BASE = 1000;
     private static final int MAX_TIMES = 32;
+    private static final String PREF_INTERVAL_NEXT = "interval_next_elapsed";
 
     public static void restore(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -41,29 +42,58 @@ public final class ReminderScheduler {
             scheduleTimes(context, times, prefs);
         } else {
             int minutes = Math.max(1, prefs.getInt("interval_minutes", 60));
-            scheduleInterval(context, minutes);
+            scheduleFirstInterval(context, minutes);
         }
     }
 
     public static void cancelAll(Context context) {
         AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        if (alarmManager == null) return;
-        alarmManager.cancel(intervalIntent(context));
-        for (int i = 0; i < MAX_TIMES; i++) {
-            alarmManager.cancel(timeIntent(context, i, 0, 0));
+        if (alarmManager != null) {
+            alarmManager.cancel(intervalIntent(context));
+            for (int i = 0; i < MAX_TIMES; i++) {
+                alarmManager.cancel(timeIntent(context, i, 0, 0));
+            }
         }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().remove(PREF_INTERVAL_NEXT).apply();
     }
 
-    private static void scheduleInterval(Context context, int minutes) {
+    private static void scheduleFirstInterval(Context context, int minutes) {
+        long target = SystemClock.elapsedRealtime() + minutes * 60_000L;
+        storeAndScheduleInterval(context, target);
+    }
+
+    static void scheduleNextInterval(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (!prefs.getBoolean("reminders_enabled", false)) return;
+        if (!MODE_INTERVAL.equals(prefs.getString("reminder_mode", MODE_INTERVAL))) return;
+
+        long intervalMs = Math.max(1, prefs.getInt("interval_minutes", 60)) * 60_000L;
+        long now = SystemClock.elapsedRealtime();
+        long previousTarget = prefs.getLong(PREF_INTERVAL_NEXT, now);
+        long next = previousTarget + intervalMs;
+        while (next <= now) next += intervalMs;
+        storeAndScheduleInterval(context, next);
+    }
+
+    private static void storeAndScheduleInterval(Context context, long targetElapsed) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putLong(PREF_INTERVAL_NEXT, targetElapsed).apply();
+
         AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         if (alarmManager == null) return;
-        long intervalMs = minutes * 60_000L;
-        long first = SystemClock.elapsedRealtime() + intervalMs;
-        alarmManager.setInexactRepeating(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                first,
-                intervalMs,
-                intervalIntent(context));
+        PendingIntent pendingIntent = intervalIntent(context);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()) {
+            alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    targetElapsed,
+                    pendingIntent);
+        } else {
+            alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    targetElapsed,
+                    pendingIntent);
+        }
     }
 
     private static void scheduleTimes(Context context, String csv, SharedPreferences prefs) {
