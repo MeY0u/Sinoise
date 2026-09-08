@@ -19,13 +19,27 @@ public class ReminderReceiver extends BroadcastReceiver {
         SharedPreferences prefs = context.getSharedPreferences(ReminderScheduler.PREFS, Context.MODE_PRIVATE);
         if (!prefs.getBoolean("reminders_enabled", false)) return;
 
+        showNow(context);
+
+        if (intent.getBooleanExtra("specific_time", false)
+                && ReminderScheduler.MODE_TIMES.equals(prefs.getString("reminder_mode", ReminderScheduler.MODE_INTERVAL))) {
+            ReminderScheduler.scheduleOneTime(
+                    context,
+                    intent.getIntExtra("index", 0),
+                    intent.getIntExtra("hour", 9),
+                    intent.getIntExtra("minute", 0));
+        }
+    }
+
+    static boolean showNow(Context context) {
         createChannel(context);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
                 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            return;
+            return false;
         }
 
+        SharedPreferences prefs = context.getSharedPreferences(ReminderScheduler.PREFS, Context.MODE_PRIVATE);
         StringBuilder body = new StringBuilder();
         for (int i = 1; i <= 3; i++) {
             String goal = prefs.getString("goal_" + i, "").trim();
@@ -55,16 +69,9 @@ public class ReminderReceiver extends BroadcastReceiver {
                 .build();
 
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (manager != null) manager.notify(101, notification);
-
-        if (intent.getBooleanExtra("specific_time", false)
-                && ReminderScheduler.MODE_TIMES.equals(prefs.getString("reminder_mode", ReminderScheduler.MODE_INTERVAL))) {
-            ReminderScheduler.scheduleOneTime(
-                    context,
-                    intent.getIntExtra("index", 0),
-                    intent.getIntExtra("hour", 9),
-                    intent.getIntExtra("minute", 0));
-        }
+        if (manager == null) return false;
+        manager.notify(101, notification);
+        return true;
     }
 
     static void createChannel(Context context) {
