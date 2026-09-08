@@ -12,6 +12,7 @@ import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
+import android.os.SystemClock;
 
 public class ReminderReceiver extends BroadcastReceiver {
     private static final String SILENT_CHANNEL_ID = "sinoise_silent_v2";
@@ -25,8 +26,12 @@ public class ReminderReceiver extends BroadcastReceiver {
             showNow(context);
         }
 
-        if (intent.getBooleanExtra("specific_time", false)
-                && ReminderScheduler.MODE_TIMES.equals(prefs.getString("reminder_mode", ReminderScheduler.MODE_INTERVAL))) {
+        String mode = prefs.getString("reminder_mode", ReminderScheduler.MODE_INTERVAL);
+        if (ReminderScheduler.MODE_INTERVAL.equals(mode)
+                && "com.sinoise.app.INTERVAL_REMINDER".equals(intent.getAction())) {
+            ReminderScheduler.scheduleNextInterval(context);
+        } else if (intent.getBooleanExtra("specific_time", false)
+                && ReminderScheduler.MODE_TIMES.equals(mode)) {
             ReminderScheduler.scheduleOneTime(
                     context,
                     intent.getIntExtra("index", 0),
@@ -69,12 +74,12 @@ public class ReminderReceiver extends BroadcastReceiver {
                 .setStyle(new android.app.Notification.BigTextStyle().bigText(body.toString()))
                 .setContentIntent(contentIntent)
                 .setAutoCancel(true)
-                .setOnlyAlertOnce(true)
                 .build();
 
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return false;
-        manager.notify(101, notification);
+        int notificationId = (int) (SystemClock.elapsedRealtime() & 0x7fffffff);
+        manager.notify(notificationId, notification);
         return true;
     }
 
