@@ -3,12 +3,15 @@ package com.sinoise.app;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -42,6 +45,17 @@ public class MainActivity extends Activity {
         requestNotificationsIfNeeded();
         setContentView(buildUi());
         load();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (prefs != null
+                && prefs.getBoolean("reminders_enabled", false)
+                && ReminderScheduler.MODE_TIMES.equals(prefs.getString("reminder_mode", ReminderScheduler.MODE_INTERVAL))
+                && ReminderScheduler.canScheduleExact(this)) {
+            ReminderScheduler.scheduleFromPrefs(this);
+        }
     }
 
     @Override
@@ -125,14 +139,28 @@ public class MainActivity extends Activity {
         root.addView(times, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
 
-        TextView note = text("Notifications are configured without sound or vibration. Android may deliver chosen-time reminders a little late to preserve battery.", 13, Typeface.NORMAL);
+        TextView note = text("Chosen times use exact alarms when Android allows it. Notifications stay silent: no sound or vibration.", 13, Typeface.NORMAL);
         note.setTextColor(Color.DKGRAY);
         note.setPadding(0, dp(12), 0, dp(8));
         root.addView(note);
 
+        Button test = button("TEST NOTIFICATION NOW");
+        test.setOnClickListener(v -> {
+            save(false);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                    && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestNotificationsIfNeeded();
+                Toast.makeText(this, "Allow notifications, then tap TEST again", Toast.LENGTH_LONG).show();
+                return;
+            }
+            boolean shown = ReminderReceiver.showNow(this);
+            Toast.makeText(this, shown ? "Test notification sent" : "Notification permission is blocked", Toast.LENGTH_SHORT).show();
+        });
+        root.addView(test, marginTop(dp(8)));
+
         Button save = button("SAVE & SCHEDULE");
         save.setOnClickListener(v -> save(true));
-        root.addView(save, marginTop(dp(8)));
+        root.addView(save, marginTop(dp(10)));
 
         Button stop = button("STOP REMINDERS");
         stop.setOnClickListener(v -> {
@@ -187,7 +215,25 @@ public class MainActivity extends Activity {
 
         if (schedule) {
             ReminderScheduler.scheduleFromPrefs(this);
-            Toast.makeText(this, "Silent reminders scheduled", Toast.LENGTH_SHORT).show();
+            if (ReminderScheduler.MODE_TIMES.equals(mode) && !ReminderScheduler.canScheduleExact(this)) {
+                requestExactAlarmAccess();
+                Toast.makeText(this, "Allow Alarms & reminders for exact chosen times", Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "Silent reminders scheduled", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private void requestExactAlarmAccess() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception ignored) {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
         }
     }
 
