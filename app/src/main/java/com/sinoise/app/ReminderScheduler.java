@@ -38,7 +38,7 @@ public final class ReminderScheduler {
         String mode = prefs.getString("reminder_mode", MODE_INTERVAL);
         if (MODE_TIMES.equals(mode)) {
             String times = prefs.getString("times", "09:00, 13:00, 17:00");
-            scheduleTimes(context, times);
+            scheduleTimes(context, times, prefs);
         } else {
             int minutes = Math.max(1, prefs.getInt("interval_minutes", 60));
             scheduleInterval(context, minutes);
@@ -66,7 +66,7 @@ public final class ReminderScheduler {
                 intervalIntent(context));
     }
 
-    private static void scheduleTimes(Context context, String csv) {
+    private static void scheduleTimes(Context context, String csv, SharedPreferences prefs) {
         String[] parts = csv.split(",");
         int index = 0;
         for (String part : parts) {
@@ -78,6 +78,7 @@ public final class ReminderScheduler {
                 int hour = Integer.parseInt(hm[0].trim());
                 int minute = Integer.parseInt(hm[1].trim());
                 if (hour < 0 || hour > 23 || minute < 0 || minute > 59) continue;
+                if (isQuietMinute(prefs, hour * 60 + minute)) continue;
                 scheduleOneTime(context, index, hour, minute);
                 index++;
             } catch (NumberFormatException ignored) {
@@ -108,6 +109,35 @@ public final class ReminderScheduler {
                     AlarmManager.RTC_WAKEUP,
                     next.getTimeInMillis(),
                     pendingIntent);
+        }
+    }
+
+    public static boolean isQuietNow(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        Calendar now = Calendar.getInstance();
+        return isQuietMinute(prefs, now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE));
+    }
+
+    private static boolean isQuietMinute(SharedPreferences prefs, int minuteOfDay) {
+        if (!prefs.getBoolean("quiet_enabled", false)) return false;
+        int start = parseTimeToMinutes(prefs.getString("quiet_start", "23:00"));
+        int end = parseTimeToMinutes(prefs.getString("quiet_end", "07:00"));
+        if (start < 0 || end < 0 || start == end) return false;
+        if (start < end) return minuteOfDay >= start && minuteOfDay < end;
+        return minuteOfDay >= start || minuteOfDay < end;
+    }
+
+    public static int parseTimeToMinutes(String value) {
+        if (value == null) return -1;
+        String[] hm = value.trim().split(":");
+        if (hm.length != 2) return -1;
+        try {
+            int hour = Integer.parseInt(hm[0].trim());
+            int minute = Integer.parseInt(hm[1].trim());
+            if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return -1;
+            return hour * 60 + minute;
+        } catch (NumberFormatException ignored) {
+            return -1;
         }
     }
 
