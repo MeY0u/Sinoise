@@ -5,6 +5,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.SystemClock;
 
 import java.util.Calendar;
@@ -23,6 +24,12 @@ public final class ReminderScheduler {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         if (!prefs.getBoolean("reminders_enabled", false)) return;
         scheduleFromPrefs(context);
+    }
+
+    public static boolean canScheduleExact(Context context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true;
+        AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        return alarmManager != null && alarmManager.canScheduleExactAlarms();
     }
 
     public static void scheduleFromPrefs(Context context) {
@@ -90,10 +97,18 @@ public final class ReminderScheduler {
         next.set(Calendar.MILLISECOND, 0);
         if (!next.after(now)) next.add(Calendar.DAY_OF_YEAR, 1);
 
-        alarmManager.setAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                next.getTimeInMillis(),
-                timeIntent(context, index, hour, minute));
+        PendingIntent pendingIntent = timeIntent(context, index, hour, minute);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()) {
+            alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    next.getTimeInMillis(),
+                    pendingIntent);
+        } else {
+            alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    next.getTimeInMillis(),
+                    pendingIntent);
+        }
     }
 
     private static PendingIntent intervalIntent(Context context) {
