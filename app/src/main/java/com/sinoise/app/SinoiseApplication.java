@@ -85,7 +85,7 @@ public class SinoiseApplication extends Application implements Application.Activ
     private void showAbout(Activity activity) {
         String message =
                 "Signal > noise\n\n" +
-                "Version 0.5.0\n\n" +
+                "Version 0.6.0\n\n" +
                 "Made by Gennady109";
 
         new AlertDialog.Builder(activity)
