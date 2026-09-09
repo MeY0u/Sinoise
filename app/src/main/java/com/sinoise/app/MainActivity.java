@@ -35,10 +35,18 @@ public class MainActivity extends Activity {
     private final EditText[] goals = new EditText[3];
     private final CheckBox[] done = new CheckBox[3];
     private EditText notToDo;
+
     private RadioButton intervalRadio;
     private RadioButton timesRadio;
     private EditText intervalMinutes;
     private EditText times;
+
+    private CheckBox ntdRemindersEnabled;
+    private RadioButton ntdIntervalRadio;
+    private RadioButton ntdTimesRadio;
+    private EditText ntdIntervalMinutes;
+    private EditText ntdTimes;
+
     private CheckBox quietEnabled;
     private EditText quietStart;
     private EditText quietEnd;
@@ -59,12 +67,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (prefs != null
-                && prefs.getBoolean("reminders_enabled", false)
-                && ReminderScheduler.MODE_TIMES.equals(prefs.getString("reminder_mode", ReminderScheduler.MODE_INTERVAL))
-                && ReminderScheduler.canScheduleExact(this)) {
-            ReminderScheduler.scheduleFromPrefs(this);
-        }
+        if (prefs == null || !ReminderScheduler.canScheduleExact(this)) return;
+
+        boolean goalTimes = prefs.getBoolean("reminders_enabled", false)
+                && ReminderScheduler.MODE_TIMES.equals(
+                prefs.getString("reminder_mode", ReminderScheduler.MODE_INTERVAL));
+        boolean ntdTimesEnabled = prefs.getBoolean("ntd_reminders_enabled", false)
+                && ReminderScheduler.MODE_TIMES.equals(
+                prefs.getString("ntd_reminder_mode", ReminderScheduler.MODE_INTERVAL));
+        if (goalTimes || ntdTimesEnabled) ReminderScheduler.scheduleFromPrefs(this);
     }
 
     @Override
@@ -136,8 +147,30 @@ public class MainActivity extends Activity {
         root.addView(notToDo, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(150)));
 
+        ntdRemindersEnabled = checkBox("Enable Not To Do notifications");
+        root.addView(ntdRemindersEnabled, marginTopWrap(dp(10)));
+
+        RadioGroup ntdModeGroup = new RadioGroup(this);
+        ntdModeGroup.setOrientation(RadioGroup.VERTICAL);
+        ntdIntervalRadio = radio("Every interval");
+        ntdTimesRadio = radio("At chosen times");
+        ntdModeGroup.addView(ntdIntervalRadio);
+        ntdModeGroup.addView(ntdTimesRadio);
+        root.addView(ntdModeGroup);
+
+        root.addView(smallLabel("NOT TO DO INTERVAL · MINUTES"), marginTop(dp(8)));
+        ntdIntervalMinutes = field("180", false);
+        ntdIntervalMinutes.setInputType(InputType.TYPE_CLASS_NUMBER);
+        root.addView(ntdIntervalMinutes, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
+
+        root.addView(smallLabel("NOT TO DO TIMES · 24H, COMMA-SEPARATED"), marginTop(dp(14)));
+        ntdTimes = field("10:00, 15:00, 20:00", false);
+        root.addView(ntdTimes, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
+
         root.addView(spacer(28));
-        root.addView(sectionTitle("REMINDERS"));
+        root.addView(sectionTitle("GOAL REMINDERS"));
 
         RadioGroup modeGroup = new RadioGroup(this);
         modeGroup.setOrientation(RadioGroup.VERTICAL);
@@ -147,24 +180,20 @@ public class MainActivity extends Activity {
         modeGroup.addView(timesRadio);
         root.addView(modeGroup);
 
-        root.addView(smallLabel("INTERVAL · MINUTES (1+)"), marginTop(dp(10)));
+        root.addView(smallLabel("GOAL INTERVAL · MINUTES (1+)"), marginTop(dp(10)));
         intervalMinutes = field("60", false);
         intervalMinutes.setInputType(InputType.TYPE_CLASS_NUMBER);
         root.addView(intervalMinutes, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
 
-        root.addView(smallLabel("TIMES · 24H, COMMA-SEPARATED"), marginTop(dp(14)));
+        root.addView(smallLabel("GOAL TIMES · 24H, COMMA-SEPARATED"), marginTop(dp(14)));
         times = field("09:00, 13:00, 17:00", false);
         root.addView(times, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
 
         root.addView(spacer(26));
         root.addView(sectionTitle("SLEEP / QUIET HOURS"));
-        quietEnabled = new CheckBox(this);
-        quietEnabled.setText("Do not notify during sleep time");
-        quietEnabled.setTextSize(15);
-        quietEnabled.setTextColor(Color.rgb(20, 20, 20));
-        quietEnabled.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(20, 20, 20)));
+        quietEnabled = checkBox("Do not notify during sleep time");
         root.addView(quietEnabled);
 
         LinearLayout sleepRow = new LinearLayout(this);
@@ -178,18 +207,14 @@ public class MainActivity extends Activity {
         sleepRow.addView(quietEnd, new LinearLayout.LayoutParams(0, dp(52), 1f));
         root.addView(sleepRow, marginTopWrap(dp(6)));
 
-        TextView quietNote = text("Example: 23:00 to 07:00. Reminders inside this window are skipped.", 13, Typeface.NORMAL);
+        TextView quietNote = text("Example: 23:00 to 07:00. Both reminder types are skipped inside this window.", 13, Typeface.NORMAL);
         quietNote.setTextColor(Color.DKGRAY);
         quietNote.setPadding(0, dp(8), 0, 0);
         root.addView(quietNote);
 
         root.addView(spacer(26));
         root.addView(sectionTitle("NOTIFICATION SOUND"));
-        soundEnabled = new CheckBox(this);
-        soundEnabled.setText("Use a sound");
-        soundEnabled.setTextSize(15);
-        soundEnabled.setTextColor(Color.rgb(20, 20, 20));
-        soundEnabled.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(20, 20, 20)));
+        soundEnabled = checkBox("Use a sound");
         soundEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (isChecked && selectedSoundUri.isEmpty()) openSoundPicker();
             updateSoundLabel();
@@ -205,7 +230,7 @@ public class MainActivity extends Activity {
         soundLabel.setPadding(0, dp(8), 0, 0);
         root.addView(soundLabel);
 
-        TextView note = text("Chosen times use exact alarms when Android allows it. Interval timing starts when you tap Save & Schedule.", 13, Typeface.NORMAL);
+        TextView note = text("Goal and Not To Do schedules are independent. Interval timing starts when you tap Save & Schedule.", 13, Typeface.NORMAL);
         note.setTextColor(Color.DKGRAY);
         note.setPadding(0, dp(18), 0, dp(8));
         root.addView(note);
@@ -214,11 +239,15 @@ public class MainActivity extends Activity {
         save.setOnClickListener(v -> save(true));
         root.addView(save, marginTop(dp(8)));
 
-        Button stop = button("STOP REMINDERS");
+        Button stop = button("STOP ALL REMINDERS");
         stop.setOnClickListener(v -> {
-            prefs.edit().putBoolean("reminders_enabled", false).apply();
+            prefs.edit()
+                    .putBoolean("reminders_enabled", false)
+                    .putBoolean("ntd_reminders_enabled", false)
+                    .apply();
+            ntdRemindersEnabled.setChecked(false);
             ReminderScheduler.cancelAll(this);
-            Toast.makeText(this, "Reminders stopped", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "All reminders stopped", Toast.LENGTH_SHORT).show();
         });
         root.addView(stop, marginTop(dp(10)));
 
@@ -231,11 +260,19 @@ public class MainActivity extends Activity {
             done[i].setChecked(prefs.getBoolean("goal_done_" + (i + 1), false));
         }
         notToDo.setText(prefs.getString("not_to_do", ""));
+
         intervalMinutes.setText(String.valueOf(prefs.getInt("interval_minutes", 60)));
         times.setText(prefs.getString("times", "09:00, 13:00, 17:00"));
         String mode = prefs.getString("reminder_mode", ReminderScheduler.MODE_INTERVAL);
         if (ReminderScheduler.MODE_TIMES.equals(mode)) timesRadio.setChecked(true);
         else intervalRadio.setChecked(true);
+
+        ntdRemindersEnabled.setChecked(prefs.getBoolean("ntd_reminders_enabled", false));
+        ntdIntervalMinutes.setText(String.valueOf(prefs.getInt("ntd_interval_minutes", 180)));
+        ntdTimes.setText(prefs.getString("ntd_times", "10:00, 15:00, 20:00"));
+        String ntdMode = prefs.getString("ntd_reminder_mode", ReminderScheduler.MODE_INTERVAL);
+        if (ReminderScheduler.MODE_TIMES.equals(ntdMode)) ntdTimesRadio.setChecked(true);
+        else ntdIntervalRadio.setChecked(true);
 
         quietEnabled.setChecked(prefs.getBoolean("quiet_enabled", false));
         quietStart.setText(prefs.getString("quiet_start", "23:00"));
@@ -247,17 +284,21 @@ public class MainActivity extends Activity {
     }
 
     private void save(boolean schedule) {
-        int minutes = 60;
-        try {
-            minutes = Integer.parseInt(intervalMinutes.getText().toString().trim());
-        } catch (NumberFormatException ignored) {
-        }
-        if (minutes < 1) minutes = 1;
-        intervalMinutes.setText(String.valueOf(minutes));
+        int goalMinutes = parsePositiveMinutes(intervalMinutes, 60);
+        int ntdMinutesValue = parsePositiveMinutes(ntdIntervalMinutes, 180);
 
         String mode = timesRadio.isChecked() ? ReminderScheduler.MODE_TIMES : ReminderScheduler.MODE_INTERVAL;
+        String ntdMode = ntdTimesRadio.isChecked() ? ReminderScheduler.MODE_TIMES : ReminderScheduler.MODE_INTERVAL;
+
         if (schedule && ReminderScheduler.MODE_TIMES.equals(mode) && !containsValidTime(times.getText().toString())) {
-            Toast.makeText(this, "Add at least one valid time, e.g. 09:00", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Add at least one valid goal time, e.g. 09:00", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        if (schedule && ntdRemindersEnabled.isChecked()
+                && ReminderScheduler.MODE_TIMES.equals(ntdMode)
+                && !containsValidTime(ntdTimes.getText().toString())) {
+            Toast.makeText(this, "Add at least one valid Not To Do time, e.g. 10:00", Toast.LENGTH_LONG).show();
             return;
         }
 
@@ -275,8 +316,14 @@ public class MainActivity extends Activity {
         }
         editor.putString("not_to_do", notToDo.getText().toString());
         editor.putString("reminder_mode", mode);
-        editor.putInt("interval_minutes", minutes);
+        editor.putInt("interval_minutes", goalMinutes);
         editor.putString("times", times.getText().toString().trim());
+
+        editor.putBoolean("ntd_reminders_enabled", ntdRemindersEnabled.isChecked());
+        editor.putString("ntd_reminder_mode", ntdMode);
+        editor.putInt("ntd_interval_minutes", ntdMinutesValue);
+        editor.putString("ntd_times", ntdTimes.getText().toString().trim());
+
         editor.putBoolean("quiet_enabled", quietEnabled.isChecked());
         editor.putString("quiet_start", quietStart.getText().toString().trim());
         editor.putString("quiet_end", quietEnd.getText().toString().trim());
@@ -289,13 +336,26 @@ public class MainActivity extends Activity {
 
         if (schedule) {
             ReminderScheduler.scheduleFromPrefs(this);
-            if (ReminderScheduler.MODE_TIMES.equals(mode) && !ReminderScheduler.canScheduleExact(this)) {
+            boolean exactNeeded = ReminderScheduler.MODE_TIMES.equals(mode)
+                    || (ntdRemindersEnabled.isChecked() && ReminderScheduler.MODE_TIMES.equals(ntdMode));
+            if (exactNeeded && !ReminderScheduler.canScheduleExact(this)) {
                 requestExactAlarmAccess();
                 Toast.makeText(this, "Allow Alarms & reminders for exact chosen times", Toast.LENGTH_LONG).show();
             } else {
-                Toast.makeText(this, "Reminders scheduled", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Goal and Not To Do reminders scheduled", Toast.LENGTH_SHORT).show();
             }
         }
+    }
+
+    private int parsePositiveMinutes(EditText field, int fallback) {
+        int minutes = fallback;
+        try {
+            minutes = Integer.parseInt(field.getText().toString().trim());
+        } catch (NumberFormatException ignored) {
+        }
+        if (minutes < 1) minutes = 1;
+        field.setText(String.valueOf(minutes));
+        return minutes;
     }
 
     private void openSoundPicker() {
@@ -352,6 +412,15 @@ public class MainActivity extends Activity {
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 42);
         }
+    }
+
+    private CheckBox checkBox(String value) {
+        CheckBox box = new CheckBox(this);
+        box.setText(value);
+        box.setTextSize(15);
+        box.setTextColor(Color.rgb(20, 20, 20));
+        box.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(20, 20, 20)));
+        return box;
     }
 
     private TextView sectionTitle(String value) {
