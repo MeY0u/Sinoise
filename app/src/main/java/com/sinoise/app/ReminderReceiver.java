@@ -20,27 +20,35 @@ public class ReminderReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         SharedPreferences prefs = context.getSharedPreferences(ReminderScheduler.PREFS, Context.MODE_PRIVATE);
-        if (!prefs.getBoolean("reminders_enabled", false)) return;
+        boolean notToDo = intent.getBooleanExtra("not_to_do", false);
+        String enabledKey = notToDo ? "ntd_reminders_enabled" : "reminders_enabled";
+        if (!prefs.getBoolean(enabledKey, false)) return;
 
         if (!ReminderScheduler.isQuietNow(context)) {
-            showNow(context);
+            showNow(context, notToDo);
         }
 
-        String mode = prefs.getString("reminder_mode", ReminderScheduler.MODE_INTERVAL);
-        if (ReminderScheduler.MODE_INTERVAL.equals(mode)
-                && "com.sinoise.app.INTERVAL_REMINDER".equals(intent.getAction())) {
-            ReminderScheduler.scheduleNextInterval(context);
+        String modeKey = notToDo ? "ntd_reminder_mode" : "reminder_mode";
+        String mode = prefs.getString(modeKey, ReminderScheduler.MODE_INTERVAL);
+        String action = intent.getAction();
+        boolean intervalAction = notToDo
+                ? ReminderScheduler.ACTION_NTD_INTERVAL.equals(action)
+                : ReminderScheduler.ACTION_GOAL_INTERVAL.equals(action);
+
+        if (ReminderScheduler.MODE_INTERVAL.equals(mode) && intervalAction) {
+            ReminderScheduler.scheduleNextInterval(context, notToDo);
         } else if (intent.getBooleanExtra("specific_time", false)
                 && ReminderScheduler.MODE_TIMES.equals(mode)) {
             ReminderScheduler.scheduleOneTime(
                     context,
+                    notToDo,
                     intent.getIntExtra("index", 0),
                     intent.getIntExtra("hour", 9),
                     intent.getIntExtra("minute", 0));
         }
     }
 
-    static boolean showNow(Context context) {
+    static boolean showNow(Context context, boolean notToDo) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
                 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             return false;
@@ -49,29 +57,39 @@ public class ReminderReceiver extends BroadcastReceiver {
         SharedPreferences prefs = context.getSharedPreferences(ReminderScheduler.PREFS, Context.MODE_PRIVATE);
         String channelId = ensureChannel(context, prefs);
 
-        StringBuilder body = new StringBuilder();
-        for (int i = 1; i <= 3; i++) {
-            String goal = prefs.getString("goal_" + i, "").trim();
-            if (goal.isEmpty()) continue;
-            boolean done = prefs.getBoolean("goal_done_" + i, false);
-            if (body.length() > 0) body.append("\n");
-            body.append(done ? "✓ " : "○ ").append(goal);
+        String title;
+        String bodyText;
+        if (notToDo) {
+            title = "NOT TO DO";
+            String list = prefs.getString("not_to_do", "").trim();
+            bodyText = list.isEmpty() ? "Protect your focus." : list;
+        } else {
+            title = "TODAY";
+            StringBuilder body = new StringBuilder();
+            for (int i = 1; i <= 3; i++) {
+                String goal = prefs.getString("goal_" + i, "").trim();
+                if (goal.isEmpty()) continue;
+                boolean done = prefs.getBoolean("goal_done_" + i, false);
+                if (body.length() > 0) body.append("\n");
+                body.append(done ? "✓ " : "○ ").append(goal);
+            }
+            if (body.length() == 0) body.append("Choose your 3 signals for today.");
+            bodyText = body.toString();
         }
-        if (body.length() == 0) body.append("Choose your 3 signals for today.");
 
         Intent open = new Intent(context, MainActivity.class);
         open.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent contentIntent = PendingIntent.getActivity(
                 context,
-                77,
+                notToDo ? 78 : 77,
                 open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         android.app.Notification notification = new android.app.Notification.Builder(context, channelId)
                 .setSmallIcon(com.sinoise.app.R.drawable.ic_sinoise)
-                .setContentTitle("TODAY")
-                .setContentText(body.toString())
-                .setStyle(new android.app.Notification.BigTextStyle().bigText(body.toString()))
+                .setContentTitle(title)
+                .setContentText(bodyText)
+                .setStyle(new android.app.Notification.BigTextStyle().bigText(bodyText))
                 .setContentIntent(contentIntent)
                 .setAutoCancel(true)
                 .build();
@@ -113,7 +131,7 @@ public class ReminderReceiver extends BroadcastReceiver {
                 channelId,
                 soundEnabled && uri != null ? "Sinoise reminders with sound" : "Sinoise silent reminders",
                 importance);
-        channel.setDescription("Reminders for today's three goals");
+        channel.setDescription("Sinoise goal and Not To Do reminders");
         channel.enableVibration(false);
         channel.setVibrationPattern(null);
         channel.setShowBadge(false);
